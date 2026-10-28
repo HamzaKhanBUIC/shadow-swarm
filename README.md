@@ -1,92 +1,71 @@
-# Shadow-Swarm: Autonomous Red Teaming C2 Framework for AI Guardrails
+# Shadow-Swarm
 
-> Command-and-control (C2) adversarial framework designed to simulate multi-agent attacks, automated prompt-injection fuzzing, and safety boundary stress-testing against LLM guardrails.
+> A small FastAPI backend that runs four sequential LLM personas (recon, exploit, evasion, analyst) and streams their output over a WebSocket, as a mock-first sketch of an AI red-team workflow.
 
-[![Python 3.11](https://img.shields.io/badge/Backend-Python_3.11-3776AB.svg?logo=python)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Next.js](https://img.shields.io/badge/Console-Next.js-000000.svg?logo=nextdotjs)](https://nextjs.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+**Status:** Early prototype, backend only. The `shadow-console/` front end is not in this repository. Default mode is an offline mock.
+**Demo:** none. Not deployed, no video.
 
----
+## What is actually here
 
-## Overview
-
-Defensive AI engineering requires rigorous, automated adversarial stress testing. Static benchmark datasets fail to evaluate how LLM guardrails respond to dynamic, multi-turn social engineering, recursive jailbreaking, and encoded payload injection.
-
-**Shadow-Swarm** is an offensive security C2 framework tailored for AI red teams. It coordinates swarms of adversarial agent personas that dynamically fuzz target LLM endpoints, probe safety guardrails, detect latent vulnerabilities (e.g., system prompt exfiltration, unauthorized tool invocation), and generate structured vulnerability reports.
-
----
-
-## Red Teaming Workflow
+- `backend/main.py`: FastAPI app with `GET /`, `POST /mission/launch` and a WebSocket at `/ws/console`.
+- `backend/agent_swarm.py`: `AgentSwarm` runs four agents one after another (Recon, Exploiter, Evasion, Analyst). They share a `HiveMind` object that holds each stage's text so the next stage can use it. Each step is logged to the WebSocket.
+- Providers, chosen by `LLM_PROVIDER`:
+  - `mock` (default): returns pre-written pentest-style narrative text. It makes no network calls and touches no target.
+  - `anthropic`, `openai`, `ollama`: send a pentest-framed prompt to that provider's API with `httpx` and return the text.
+- The `target` you submit is only a string placed into the prompts. **No module in this repo scans, connects to, fuzzes or attacks the target.** The output is model-written or canned text, not findings from real testing.
 
 ```mermaid
-graph TD
-    A[Red Team Operator - Shadow Console] --> B[Shadow-Swarm C2 Server - FastAPI]
-    B --> C{Adversarial Attack Coordinator}
-    C -->|Vector 1: Multi-Turn Jailbreak| D[Adversarial Persona Agent Alpha]
-    C -->|Vector 2: Encoded Injection| E[Adversarial Persona Agent Beta]
-    C -->|Vector 3: Tool Privilege Esc.| F[Adversarial Persona Agent Gamma]
-    D --> G[Target LLM System / AI Guardrail Endpoint]
-    E --> G
-    F --> G
-    G --> H[Guardrail Breach Evaluator]
-    H --> I[Vulnerability Scorecard & Attack Replay Log]
+graph LR
+    A[POST /mission/launch] --> B[Recon]
+    B --> C[Exploiter]
+    C --> D[Evasion]
+    D --> E[Analyst report]
+    B & C & D & E --> H[(HiveMind: shared text)]
+    B & C & D & E --> W[WebSocket /ws/console]
 ```
 
----
+## Quickstart
 
-## Core Capabilities
+Not run end to end by the author of this README; the steps follow the code. Needs Python 3.
 
-- **Multi-Persona Adversarial Orchestration**: Coordinates distributed attack agents employing contrasting personas (e.g., academic researcher, emergency responder, roleplay encoder).
-- **Automated Fuzzing Pipeline**: Generates polymorphic jailbreak variations using Base64 obfuscation, markdown smuggling, and multi-lingual prompt translations.
-- **Operator Console (`shadow-console/`)**: Next.js dashboard providing live telemetry, attack vector trees, and exportable remediation logs.
-
----
-
-## Repository Structure
-
-```
-.
-├── backend/                  # FastAPI C2 orchestration server and attack vector engines
-├── shadow-console/           # Next.js web interface for attack orchestration
-├── run_backend.ps1           # Windows PowerShell server runner script
-├── run_frontend.ps1          # Windows PowerShell console runner script
-├── CONTRIBUTING.md           # Guidelines for contributing new attack modules
-└── README.md                 # Technical documentation
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-- Python 3.11+
-- Node.js 18+ (for operator console)
-- Target LLM API endpoint for authorized security evaluation
-
-### Launching the C2 Backend
 ```bash
 cd backend
 pip install -r requirements.txt
-python main.py
+cp .env.example .env        # LLM_PROVIDER=mock is the default
+python main.py              # serves on http://0.0.0.0:8000
 ```
 
-### Launching the Operator Console
-```bash
-cd shadow-console
-npm install
-npm run dev
-```
+Or `uvicorn main:app --reload` from `backend/`. `run_backend.ps1` does the same on Windows but expects a `backend/venv` you create yourself.
 
----
+Use mock mode unless you have a reason not to, and only submit targets you are authorized to test. `requirements.txt` lists several packages the code never imports (`langchain`, `openai`, `anthropic`, `motor`, `redis`); the code uses `fastapi`, `uvicorn`, `pydantic`, `httpx`, `python-dotenv` and `websockets`.
 
-## Responsible Use & Ethics Policy
+## Configuration
 
-Shadow-Swarm is engineered strictly for authorized defensive security assessments, penetration testing, and AI safety research. It is intended to help developers identify and remediate vulnerabilities in their own AI systems before production deployment.
+Set in `backend/.env` (template: `backend/.env.example`).
 
----
+| Variable | Default | Purpose |
+| :-- | :-- | :-- |
+| `LLM_PROVIDER` | `mock` | `mock`, `anthropic`, `openai` or `ollama` |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | none, `claude-3-5-sonnet-20241022` | Anthropic provider |
+| `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_API_BASE` | none, `gpt-4o-mini`, `https://api.openai.com/v1` | OpenAI-compatible provider |
+| `OLLAMA_API_BASE`, `OLLAMA_MODEL` | `http://127.0.0.1:11434`, `llama3:8b` | Local Ollama provider |
+| `SWARM_DELAY_FACTOR` | `1.0` | Delay scaling in mock mode |
+| `SWARM_VERBOSE` | `true` | Listed in `.env.example`; not read by the code |
+
+## Limitations
+
+- **Missing console.** `shadow-console/` is an empty git submodule pointer (gitlink to commit `afde417`) with no `.gitmodules` and no files. The Next.js dashboard, `run_frontend.ps1` and the Next.js badge describe code that is not here.
+- **Not implemented, although earlier versions of this README described them:** automated prompt-injection fuzzing, Base64 / markdown-smuggling / multi-lingual payload generation, a guardrail breach evaluator, a vulnerability scorecard, attack replay logs, and detection of system-prompt exfiltration or unauthorized tool use. The Analyst agent returns a canned (mock) or model-written report.
+- **Not a test harness for LLM guardrails.** The LLM calls go to the configured provider, not to the target; nothing evaluates a target's responses.
+- **Provider errors are hidden.** Any exception in a live provider call falls back silently to mock output (`agent_swarm.py`), so a live run may actually be mock text.
+- **No authorization or target allowlist.** `/mission/launch` has no authentication, CORS is `*` with credentials, and `python main.py` binds `0.0.0.0`. Do not expose it on a network.
+- **No tests, no CI.**
+- Repository history: the first commit added a `backend/venv/` that was later removed, so `.git` is large. `.env` in that commit held placeholders only.
+
+## Responsible use
+
+For authorized security assessment and AI safety research only. Do not point any extension of this code at systems you do not own or have written permission to test.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-```
+MIT, see [LICENSE](LICENSE).
